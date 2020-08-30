@@ -1,9 +1,9 @@
 ### A performant reactor based tcp server
 
 - [x] timeout handling
-- [] client
-- [] udp connection
-- [] http parser and http connection
+- [ ] client
+- [ ] udp connection
+- [ ] http parser and http connection
 
 
 #### Test
