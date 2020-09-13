@@ -5,9 +5,10 @@
 #include <atomic>
 #include <vector>
 #include <time.h>
+#include <chrono>
+
 
 using namespace std;
-
 
 
 atomic<TimerId> Timer::num_timers {0};
@@ -71,6 +72,8 @@ void TimerQueue::reset(const vector<PTimer> & expired, const Time & time) {
             insert(ptimer);
     }
     if (!timers.empty()) {
+        cout << " reset " << timers.top()->when().time_since_epoch().count() 
+             << " now " << steady_clock::now().time_since_epoch().count() << endl;
         write_timer_fd(timer_fd, timers.top()->when());
     }
 }
@@ -103,10 +106,14 @@ int TimerQueue::create_timer_fd() {
 }
 
 void TimerQueue::write_timer_fd(int timer_fd, const Time & expire_time) {
-    auto remainmsc = chrono::duration_cast<chrono::microseconds>(
-        expire_time - chrono::steady_clock::now()
-    );
+    auto remainmsc = 1000ms;
     auto num_msc = remainmsc.count();
+    auto now = steady_clock::now();
+    // bug fix caused by lower_time - higer_time.
+    // cause timer_fd do not trigger read event ?
+    if (expire_time > now + 1000ms) {
+        num_msc = duration_cast<chrono::microseconds>(expire_time - now).count();
+    }
     itimerspec oldtime{};
     itimerspec newtime {{},
         {num_msc / decltype(remainmsc)::period::den,

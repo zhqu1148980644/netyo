@@ -9,9 +9,13 @@
 #include <fcntl.h>
 #include <memory>
 #include <iostream>
+#include <atomic>
 
 using namespace std;
 
+
+atomic<int> closed_sockets {0};
+atomic<int> opened_sockets {0};
 
 Channel::Protocol Transport::default_channel_protocol = {
     [](void * pthis) {
@@ -34,10 +38,11 @@ Transport::Transport(EventLoop* loop, Socket && socket,
       socket(move(socket)),
       channel("server",this->socket.fd(), this, loop->selector.get(), channel_protocol) {
     socket.setsockopt(SOL_SOCKET, SO_KEEPALIVE, 1);
+    cout << "opened " << ++opened_sockets << " number of sockets" << endl;
 }
 
 Transport::~Transport() {
-    channel.remove(); // no recode
+    cout << "closed " << ++closed_sockets  << " scokets " << endl;
 }
 
 bool Transport::operator()() {
@@ -68,6 +73,9 @@ EventLoop* Transport::get_event_loop() const {
 bool Transport::is_reading() {
     return channel.is_reading();
 }
+bool Transport::is_writing() {
+    return channel.is_writing();
+}
 void Transport::pause_reading() {
     if (channel.is_reading())
         channel.disable(Channel::READ);
@@ -76,8 +84,22 @@ void Transport::resume_reading() {
     if (!channel.is_reading())
         channel.enable(Channel::READ);
 }
+void Transport::pause_writing() {
+    if (channel.is_writing())
+        channel.disable(Channel::WRITE);
+}
+void Transport::resume_writing() {
+    if (!channel.is_writing())
+        channel.enable(Channel::WRITE);
+}
+bool Transport::activated() {
+    return state() == ACTIVATED;
+}
 bool Transport::is_closing() {
-    return state() == DISCONNECTING || state() == DISCONNECTED;
+    return state() == DISCONNECTING;
+}
+bool Transport::closed() {
+    return state() == DISCONNECTED;
 }
 
 /**********************************TcpTransport********************************/
@@ -97,7 +119,7 @@ void TcpTransport::send_in_loop(const void* data, size_t len) {
     }
     reset_timeout();
     int lensent = 0;
-    if (channel.is_writing() && wbuffer.empty()) {
+    if (is_writing() && wbuffer.empty()) {
         lensent = socket.send(data, len);
         if (lensent < 0) {
             handle_onclose();
@@ -106,8 +128,8 @@ void TcpTransport::send_in_loop(const void* data, size_t len) {
     }
     if (lensent < len) {
         size_t bytes_write = wbuffer.feed_wbuffer(data, len);
-        if (!channel.is_writing())
-            channel.enable(Channel::WRITE);
+        if (!is_writing())
+            resume_writing();
         if (wbuffer.size() > write_highlevel && protocol->pause_writing_cb)
             protocol->pause_writing_cb(shared_from_this());
     }
@@ -134,16 +156,16 @@ void TcpTransport::handle_onread() {
 }
 void TcpTransport::handle_onwrite() {
     loop->assert_within_self_thread();
-    if (!channel.is_writing()) {
+    if (!is_writing()) {
 
     }
     reset_timeout();
     int res = wbuffer.drain_wbuffer(socket.fd());
     if (res == 0) {
-        channel.disable(Channel::WRITE);
+        pause_writing();
         if (protocol->done_writing_cb)
             protocol->done_writing_cb(shared_from_this());
-        if (state() == DISCONNECTING) {
+        if (is_closing()) {
             force_close();
         }
     }
@@ -151,18 +173,42 @@ void TcpTransport::handle_onwrite() {
         handle_onerror();
     }
 }
-void TcpTransport::handle_onclose() {
-    loop->assert_within_self_thread();
-    shutdown();
 
+void TcpTransport::handle_onclose() {
+    // TODO: Need handle half close;
+    close();
+}
+
+void TcpTransport::handle_onerror() {
+    int error = socket.getsockerr();
+
+    if (error == 0) return;
+    if (error == EPIPE || error == ECONNRESET || error == 104) {
+        // RST
+    }
+    else {
+        // Error
+    }
+    force_close();
+}
+
+void TcpTransport::close() {
+    if (is_closing() || closed())
+        return;
+    if (is_writing()) {
+        socket.shutdown(SHUT_RD);
+        set_state(DISCONNECTING);
+    }
+    else {
+        force_close();
+    }
 }
 
 void TcpTransport::force_close() {
-    if (state() != DISCONNECTED) {
+    if (!closed()) {
         set_state(DISCONNECTED);
-        channel.remove();
+        channel.destroy();
         socket.shutdown(SHUT_RDWR);
-        socket.close();
         if (protocol->connection_lost_cb)
             protocol->connection_lost_cb(shared_from_this());
     }
@@ -171,19 +217,6 @@ void TcpTransport::force_close() {
     }
 }
 
-void TcpTransport::handle_onerror() {
-    int error = socket.getsockerr();
-
-    if (error == 0) return;
-    channel.remove();
-    if (error == EPIPE || error == ECONNRESET || error == 104) {
-        // RST
-    }
-    else {
-        // Error
-    }
-    shutdown();
-}
 
 
 // user interface
@@ -208,7 +241,7 @@ bool TcpTransport::activate() {
         socket.setsockopt(SOL_SOCKET, SO_KEEPALIVE, true);
         if (protocol->connection_made_cb)
             protocol->connection_made_cb(shared_from_this());
-        channel.enable(Channel::READ);
+        resume_reading();
         set_state(ACTIVATED);
         reset_timeout();
     });
@@ -226,8 +259,8 @@ void* TcpTransport::get_transport_protocol() const {
 void TcpTransport::send(const void* data, size_t len) {
     // need mutex? or some times(when there are no send_in_loop in queue) can just call send_in_loop?
     if (len) {
-        if (!channel.is_writing()) {
-            channel.enable(Channel::WRITE);
+        if (!is_writing()) {
+            resume_writing();
         }
         loop->call_soon([=](){
             send_in_loop(data, len);
@@ -236,18 +269,6 @@ void TcpTransport::send(const void* data, size_t len) {
 }
 void TcpTransport::send_file() {
     // wait for implement
-}
-void TcpTransport::shutdown() {
-    loop->call_soon([this](){
-        if (state() == ACTIVATED && !is_closing()) {
-            if (!channel.is_writing()) {
-                force_close();
-            }
-            else {
-                set_state(DISCONNECTING);
-            }
-        }
-    });
 }
 
 /***************************TcpServer*******************************/
@@ -259,7 +280,7 @@ TcpServerAcceptor::~TcpServerAcceptor() {
 bool TcpServerAcceptor::activate() {
     loop->call_soon([=]() {
         socket.setsockopt(SOL_SOCKET, SO_KEEPALIVE, true);
-        channel.enable(Channel::READ);
+        resume_reading();
         set_state(ACTIVATED);
     });
     return true;

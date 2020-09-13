@@ -46,6 +46,9 @@ public:
         : name(name), _fd(fd), controller(controller), selector(selector), 
           protocol(protocol) {}
 
+    ~Channel() {
+        destroy();
+    }
     int fd() const { return _fd; }
     int events() const { return _events; }
     int prev_events() const { return _prev_events; }
@@ -81,7 +84,10 @@ public:
     }
 
     void destroy() {
-        _state = States::DESTROYED;
+        if (_state != States::DESTROYED) {
+            remove();
+            _state = States::DESTROYED;
+        }
     }
 
     void notify() {

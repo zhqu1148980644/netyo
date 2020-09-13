@@ -52,7 +52,8 @@ public:
 
     void run() {
         callback();
-        _when = chrono::steady_clock::now() + interval;
+        if (interval > 0ms)
+            _when = chrono::steady_clock::now() + interval;
     }
     
     Time when() const { return _when; }
