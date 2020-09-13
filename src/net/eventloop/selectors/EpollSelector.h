@@ -16,7 +16,7 @@ private:
 
     void update(int op, int fd, int newevents = 0, void* pdata = nullptr);
 public:
-    static const int InitialEventListSize = 16;
+    static const int InitialEventListSize = 10000;
 
     EpollSelector(Selector::EventHandler && handler);
     ~EpollSelector() override;

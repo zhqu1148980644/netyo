@@ -35,7 +35,7 @@ void EpollSelector::select(int timeout) {
         return;
     }
     else {
-        assert(num_events < events.size());
+        assert(num_events <= events.size());
         for (int i = 0; i < num_events; ++i) {
             if (events[i].data.ptr) {
                 handler(events[i].data.ptr, events[i].events);

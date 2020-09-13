@@ -11,6 +11,8 @@
 using namespace std;
 using namespace chrono;
 
+atomic<int> accepted {0};
+
 class TcpServer : public NoCopyble {
 protected:
     class TimeOutEntry {
@@ -21,7 +23,10 @@ protected:
         explicit TimeOutEntry(const weak_ptr<Transport> & conn) : conn(conn) {}
         ~TimeOutEntry() {
             if (!conn.expired()) {
-                conn.lock()->shutdown();
+                auto sp = conn.lock();
+                cout << "Connection " << string(sp->get_socket()) 
+                     << " timed out. Handling close!" << endl;
+                sp->force_close();
             }
         }
     };
@@ -60,18 +65,25 @@ public:
     server_protocol = {
         {},
         [this](auto pconn) {
-            auto socket = pconn->get_socket().accept();
-            if (socket.fd() < 0) {
-                socket.close();
-            }
-            else {
-                auto pclient = shared_ptr<Transport>(new TcpTransport{
-                    this->get_loop(), move(socket), client_timeout,
-                    this->client_protocol, this->channel_protocol
-                });
-                connections.emplace(pclient, weak_ptr<TimeOutEntry>());
-                pclient->activate();
-            }
+            int sockfd = 0;
+            // Must use while loop, other wise some established socket will get
+            // no chance to be accepted. Why?
+            do {
+                auto socket = pconn->get_socket().accept();
+                sockfd = socket.fd();
+                if (sockfd < 0) {
+                    socket.close();
+                }
+                else {
+                    cout << "Accepted " << ++accepted << " client connections" << endl;
+                    auto pclient = shared_ptr<Transport>(new TcpTransport{
+                        this->get_loop(), move(socket), client_timeout,
+                        this->client_protocol, this->channel_protocol
+                    });
+                    connections.emplace(pclient, weak_ptr<TimeOutEntry>());
+                    pclient->activate();
+                }
+            } while (sockfd > 0);
         }
     };
     if (!client_protocol->reset_timeout_cb) {
@@ -123,6 +135,10 @@ public:
             server->get_socket().listen();
             server->activate();
         });
+        server_loop->call_every([&]() {
+            cout << "Server sock state: " << server->get_socket().getsockerr() << " "
+                 << "Number of connections: " << connections.size() << endl;
+        }, 5s);
         return true;
     }
 };

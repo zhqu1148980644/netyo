@@ -144,8 +144,7 @@ public:
         swap(localaddr, other.localaddr);
     }
     ~Socket() {
-        if (sock_fd > 0)
-            ::close(sock_fd);
+        close();
     }
     static Socket server_socket(const InetAddr & localaddr) {
         Socket sock = Socket(DEFAULT_FAMILY, DEFAULT_TYPE, DEFAULT_PROTO);
@@ -221,7 +220,10 @@ public:
     }
 
     int close() {
-        return ::close(sock_fd);
+        int res = 0;
+        if (sock_fd > 0) 
+            ::close(sock_fd);
+        return res;
     }
 
     int getsockerr() {

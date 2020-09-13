@@ -41,17 +41,22 @@ public:
     EventLoop* set_event_loop(EventLoop* loop);
     EventLoop* get_event_loop() const;
 
-    virtual bool is_reading();
-    virtual void pause_reading(); 
-    virtual void resume_reading();
+    virtual bool activated();
     virtual bool is_closing();
+    virtual bool closed();
+    virtual bool is_reading();
+    virtual bool is_writing();
+    virtual void pause_reading();
+    virtual void resume_reading();
+    virtual void pause_writing();
+    virtual void resume_writing();
 
     virtual bool activate() = 0;
     virtual void* set_transport_protocol(void * protocol) = 0;
     virtual void* get_transport_protocol() const = 0;
     virtual void send(const void* data, size_t len) = 0;
     virtual void send_file() = 0;
-    virtual void shutdown() = 0;
+    virtual void close() = 0;
     virtual void force_close() = 0;
 };
 
@@ -96,7 +101,7 @@ public:
     virtual void* get_transport_protocol() const override;
     virtual void send(const void* data, size_t len) override;
     virtual void send_file() override;
-    virtual void shutdown() override;
+    virtual void close() override;
     virtual void force_close() override;
 };
 
