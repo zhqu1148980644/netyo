@@ -7,8 +7,8 @@
 #include <time.h>
 #include <chrono>
 
-
 using namespace std;
+using namespace chrono;
 
 
 atomic<TimerId> Timer::num_timers {0};
@@ -37,50 +37,35 @@ TimerQueue::TimerQueue(const RunInLoopCallBack & run_in_loop,
                               Selector * selector)
     : run_in_loop(run_in_loop),
       timer_fd(create_timer_fd()),
-      pch(new Channel("Timer queue",timer_fd, this, selector, &channel_protocol)) {
+      pch(new Channel(timer_fd, this, selector, &channel_protocol)) {
         pch->enable(Channel::READ);
 }
 
 TimerQueue::~TimerQueue() {
     run_in_loop([this]() {
-        pch->remove();
         ::close(timer_fd);
     });
 }
 
 void TimerQueue::handle_exprired() {
     read_timer_fd(timer_fd);
-    vector<PTimer> expired;
     auto now = std::chrono::steady_clock::now();
-    while (!timers.empty()) {
-        if (timers.top()->when() < now) {
-            auto ptimer = timers.top(); timers.pop();
-            if (valid_timers.count(ptimer->id())) {
-                expired.push_back(ptimer);
-                ptimer->run();
+    while (timers.size() && timers.top()->when() < now) {
+        auto ptimer = timers.top(); timers.pop();
+        if (valid_timers.count(ptimer->id())) {
+            ptimer->run();
+            if (ptimer->is_repeat()) {
+                insert(ptimer);
             }
         }
-        else break;
     }
-    reset(expired, now);
-}
-
-void TimerQueue::reset(const vector<PTimer> & expired, const Time & time) {
-    for (auto const & ptimer : expired) {
-        // ptimer should be valid
-        if (ptimer->is_repeat())
-            insert(ptimer);
-    }
-    if (!timers.empty()) {
-        cout << " reset " << timers.top()->when().time_since_epoch().count() 
-             << " now " << steady_clock::now().time_since_epoch().count() << endl;
+    if (timers.size()) {
         write_timer_fd(timer_fd, timers.top()->when());
     }
+    else {
+    }
 }
 
-void TimerQueue::reset() {
-
-}
 
 void TimerQueue::remove_timer(TimerId timer_id) {
     run_in_loop([=](){
@@ -106,27 +91,26 @@ int TimerQueue::create_timer_fd() {
 }
 
 void TimerQueue::write_timer_fd(int timer_fd, const Time & expire_time) {
-    auto remainmsc = 1000ms;
-    auto num_msc = remainmsc.count();
+    auto remain_ms = 1500ms;
     auto now = steady_clock::now();
-    // bug fix caused by lower_time - higer_time.
-    // cause timer_fd do not trigger read event ?
-    if (expire_time > now + 1000ms) {
-        num_msc = duration_cast<chrono::microseconds>(expire_time - now).count();
+    if (expire_time > now + 1500ms) {
+        remain_ms = duration_cast<milliseconds>(expire_time - now);
     }
+    auto sec = duration_cast<seconds>(remain_ms).count();
+    auto nanosec = duration_cast<nanoseconds>(remain_ms).count();
+    itimerspec newtime {{}, {sec, (nanosec % (sec * nanoseconds::period::den))}};
     itimerspec oldtime{};
-    itimerspec newtime {{},
-        {num_msc / decltype(remainmsc)::period::den,
-        (num_msc % decltype(remainmsc)::period::den) * 1000}
-    };
 
     int res = ::timerfd_settime(timer_fd, 0, &newtime, &oldtime);
+    if (res < 0) {
+        // 
+    }
 }
 
 void TimerQueue::read_timer_fd(int timer_fd) {
     uint64_t tmp;
     ssize_t n = ::read(timer_fd, &tmp, sizeof(tmp));
-    if (n != sizeof(tmp)) {
+    if (n < 0) {
         // error
     }
 }

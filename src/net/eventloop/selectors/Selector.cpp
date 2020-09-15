@@ -2,6 +2,9 @@
 #include "EpollSelector.h"
 
 
+int Selector::EPOLL_WAIT_TIMEOUT = 10000;
+int Selector::EVENTS_LIST_SIZE = 16;
+
 Selector::Selector(Selector::EventHandler && handler)
     : handler(move(handler)) {}
 

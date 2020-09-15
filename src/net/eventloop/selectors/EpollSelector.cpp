@@ -4,14 +4,12 @@
 #include <unistd.h>
 #include <assert.h>
 #include <iostream>
-
 using namespace std;
-
 
 EpollSelector::EpollSelector(Selector::EventHandler && handler)
     : Selector(move(handler)),
       epoll_fd(::epoll_create1(EPOLL_CLOEXEC)),
-      events(InitialEventListSize) {}
+      events(EVENTS_LIST_SIZE) {}
 
 EpollSelector::~EpollSelector() {
     ::close(epoll_fd);

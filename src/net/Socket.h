@@ -20,6 +20,7 @@
 #include <netinet/in.h>
 #include <errno.h>
 #include <iostream>
+#include <string>
 
 
 
@@ -106,7 +107,7 @@ public:
     }
 
     uint16_t port() const {
-        return addr.sin_port;
+        return is_ipv4() ? addr.sin_port : addr6.sin6_port;
     }
 
     sa_family_t family() const {
@@ -119,6 +120,7 @@ class Socket : public NoCopyble {
 private:
     int sock_fd = -1;
     InetAddr localaddr;
+    mutable string addr_pair;
 
 public:
     static const int DEFAULT_FAMILY = AF_INET,
@@ -226,7 +228,7 @@ public:
         return res;
     }
 
-    int getsockerr() {
+    int getsockerr() const {
         int optval = 0;
         socklen_t optlen = static_cast<socklen_t>(sizeof(optval));
         if (::getsockopt(sock_fd, SOL_SOCKET, SO_ERROR, &optval, &optlen) < 0)
@@ -235,7 +237,7 @@ public:
             return optval;
     }
 
-    sockaddr_in6 getsockname() {
+    sockaddr_in6 getsockname() const {
         sockaddr_in6 addr6{};
         socklen_t addrlen = static_cast<socklen_t>(sizeof(addr6));
         if (::getsockname(sock_fd,
@@ -246,7 +248,7 @@ public:
         return addr6;
     }
 
-    sockaddr_in6 getpeername() {
+    sockaddr_in6 getpeername() const {
         sockaddr_in6 addr6{};
         socklen_t addrlen = static_cast<socklen_t>(sizeof(addr6));
         if (::getpeername(sock_fd,
@@ -257,8 +259,11 @@ public:
         return addr6;
     }
 
-    operator string() {
-        return string(localaddr) + "|" + string(InetAddr(getpeername()));
+    operator string() const {
+        if (!addr_pair.size()) {
+            addr_pair = string(localaddr) + "|" + string(InetAddr(getpeername()));
+        }
+        return addr_pair;
     }
 
     int fd() const {
@@ -271,3 +276,8 @@ public:
 };
 
 
+template <typename OStream>
+OStream & operator<<(OStream && ostream, const Socket & sock) {
+    ostream << string(sock);
+    return ostream;
+}

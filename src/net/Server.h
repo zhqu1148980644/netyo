@@ -11,8 +11,6 @@
 using namespace std;
 using namespace chrono;
 
-atomic<int> accepted {0};
-
 class TcpServer : public NoCopyble {
 protected:
     class TimeOutEntry {
@@ -24,15 +22,13 @@ protected:
         ~TimeOutEntry() {
             if (!conn.expired()) {
                 auto sp = conn.lock();
-                cout << "Connection " << string(sp->get_socket()) 
-                     << " timed out. Handling close!" << endl;
                 sp->force_close();
             }
         }
     };
 
 protected:
-    using LoopFetcher = function<EventLoop*()>;
+    using LoopFetcher = function<EventLoop*(bool)>;
     LoopFetcher get_loop;
     EventLoop* server_loop;
 
@@ -53,7 +49,7 @@ public:
         TcpTransport::Protocol* protocol = &TcpTransport::default_protocol,
         Channel::Protocol* channel_protocol = &TcpTransport::default_channel_protocol)
     : get_loop(get_loop),
-      server_loop(get_loop()),
+      server_loop(get_loop(true)),
       client_protocol(protocol),
       channel_protocol(channel_protocol),
       client_timeout(timeout),
@@ -62,83 +58,93 @@ public:
                     Socket::server_socket(addr), 0s, 
                     &server_protocol, channel_protocol)) {
 
-    server_protocol = {
-        {},
-        [this](auto pconn) {
-            int sockfd = 0;
-            // Must use while loop, other wise some established socket will get
-            // no chance to be accepted. Why?
-            do {
-                auto socket = pconn->get_socket().accept();
-                sockfd = socket.fd();
-                if (sockfd < 0) {
-                    socket.close();
+        server_protocol = {
+            {},
+            [this](auto pconn) {
+                int sockfd = 0;
+                do {
+                    auto socket = pconn->get_socket().accept();
+                    sockfd = socket.fd();
+                    if (sockfd < 0) {
+                        socket.close();
+                    }
+                    else {
+                        auto pclient = shared_ptr<Transport>(new TcpTransport{
+                            this->get_loop(false), move(socket), client_timeout,
+                            this->client_protocol, this->channel_protocol
+                        });
+                        connections.emplace(pclient, weak_ptr<TimeOutEntry>());
+                        pclient->activate();
+                    }
+                } while (sockfd > 0);
+            }
+        };
+        if (!client_protocol->reset_timeout_cb) {
+            client_protocol->reset_timeout_cb = 
+                [this](auto pconn, const auto & timeout) {
+                if (!connections.count(pconn)) {
+                    // error
                 }
                 else {
-                    cout << "Accepted " << ++accepted << " client connections" << endl;
-                    auto pclient = shared_ptr<Transport>(new TcpTransport{
-                        this->get_loop(), move(socket), client_timeout,
-                        this->client_protocol, this->channel_protocol
-                    });
-                    connections.emplace(pclient, weak_ptr<TimeOutEntry>());
-                    pclient->activate();
+                    if (connections[pconn].expired()) {
+                        auto entry = make_shared<TimeOutEntry>(pconn);
+                        connections[pconn] = entry;
+                        timing_wheel.insert(timeout.count(), entry);
+                    }
+                    else {
+                        timing_wheel.insert(
+                            timeout.count(), 
+                            connections[pconn].lock()
+                        );
+                    }
                 }
-            } while (sockfd > 0);
+            };
         }
-    };
-    if (!client_protocol->reset_timeout_cb) {
-        client_protocol->reset_timeout_cb = 
-            [this](auto pconn, const auto & timeout) {
-            if (!connections.count(pconn)) {
-                // error
-            }
-            else {
-                if (connections[pconn].expired()) {
-                    auto entry = make_shared<TimeOutEntry>(pconn);
-                    connections[pconn] = entry;
-                    timing_wheel.insert(timeout.count(), entry);
-                }
-                else {
-                    timing_wheel.insert(
-                        timeout.count(), 
-                        connections[pconn].lock()
-                    );
-                }
-            }
-        };
+        
+        auto conn_lost_cb = client_protocol->connection_lost_cb;
+        // must use call_later, as some contoller of channel mightbe predead.
+        // TODO: Find another way to handle Segmentaion Fault caused by this
+        if (conn_lost_cb) {
+            client_protocol->connection_lost_cb = 
+            [this, conn_lost_cb](auto pconn) {
+                conn_lost_cb(pconn);
+                server_loop->call_later([pconn, this]() { 
+                    connections.erase(pconn); 
+                }, 2s);
+            };
+        }
+        else {
+            client_protocol->connection_lost_cb = 
+            [this](auto pconn) {
+                server_loop->call_later([pconn, this] () {
+                    connections.erase(pconn);
+                }, 2s);
+            };
+        }
     }
-    
-    auto conn_lost_cb = client_protocol->connection_lost_cb;
-    if (conn_lost_cb) {
-        client_protocol->connection_lost_cb = 
-        [this, conn_lost_cb](auto pconn) {
-            conn_lost_cb(pconn);
-            connections.erase(pconn);
-        };
-    }
-    else {
-        client_protocol->connection_lost_cb = [this](auto pconn) {
-            connections.erase(pconn);
-        };
-    }
-}
     ~TcpServer() {
         for (auto [pconn, wptr] : connections) {
             wptr.reset();
         }
     }
+
     bool operator()() {
         return activate();
     }
+
     bool activate() {
         server_loop->call_soon([this]() {
             server->get_socket().listen();
             server->activate();
         });
         server_loop->call_every([&]() {
-            cout << "Server sock state: " << server->get_socket().getsockerr() << " "
-                 << "Number of connections: " << connections.size() << endl;
+            cout << "Server states: sockerr:" << server->get_socket().getsockerr() << " "
+                 << "num connections: " << connections.size() << endl;
         }, 5s);
         return true;
+    }
+
+    const Socket & get_socket() const {
+        return server->get_socket();
     }
 };

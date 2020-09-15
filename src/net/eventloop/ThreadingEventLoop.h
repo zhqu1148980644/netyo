@@ -121,7 +121,7 @@ public:
     void join();
     void wait();
 
-    EventLoop * get_loop();
+    EventLoop * get_loop(bool mainloop);
 
     template <typename CallBack>
         void call_soon(CallBack&& cb);

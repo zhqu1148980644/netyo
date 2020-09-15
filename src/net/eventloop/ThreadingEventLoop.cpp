@@ -152,8 +152,12 @@ void ThreadingEventLoop::wait() {
     join();
 }
 
-EventLoop* ThreadingEventLoop::get_loop() {
-    EventLoop* next_loop =  threads[thread_index]->get_loop();
-    thread_index = thread_index + 1 >= threads.size() ? 0 : thread_index + 1;
-    return next_loop;
+EventLoop* ThreadingEventLoop::get_loop(bool mainloop = false) {
+    if (mainloop) {
+        return threads[0]->get_loop();
+    }
+    else {
+        thread_index = (thread_index + 1) % (threads.size() - 1);
+        return threads[thread_index + 1]->get_loop();
+    }
 }

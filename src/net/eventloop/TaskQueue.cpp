@@ -9,7 +9,7 @@ Channel::Protocol TaskQueue::channel_protocol = {
 TaskQueue::TaskQueue(const RunInLoopCallBack & run_in_loop,
                                     Selector* selector)
     : wakeup_fd(create_event_fd()),
-      pch(new Channel("task queue", wakeup_fd, this, selector, &channel_protocol)),
+      pch(new Channel(wakeup_fd, this, selector, &channel_protocol)),
       run_in_loop(run_in_loop) {
    pch->enable(Channel::READ);
 }
@@ -56,8 +56,8 @@ void TaskQueue::read_event_fd(int wakeup_fd) {
     uint64_t tmp;
     ssize_t res = ::read(wakeup_fd, &tmp, sizeof(tmp));
     if (res < 0) {
-        // error
-    } 
+        // 
+    }
 }
 
 void TaskQueue::push(const CallBack & cb) {

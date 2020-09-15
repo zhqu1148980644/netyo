@@ -81,7 +81,7 @@ protected:
     chrono::time_point<chrono::steady_clock> last_active;
 
     void reset_timeout();
-    void send_in_loop(const void * data, size_t len);
+    void done_writing();
 
     virtual void handle_onread() override;
     virtual void handle_onwrite() override;

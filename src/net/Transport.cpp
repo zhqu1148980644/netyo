@@ -9,13 +9,9 @@
 #include <fcntl.h>
 #include <memory>
 #include <iostream>
-#include <atomic>
 
 using namespace std;
 
-
-atomic<int> closed_sockets {0};
-atomic<int> opened_sockets {0};
 
 Channel::Protocol Transport::default_channel_protocol = {
     [](void * pthis) {
@@ -36,13 +32,13 @@ Transport::Transport(EventLoop* loop, Socket && socket,
     Channel::Protocol * channel_protocol = &default_channel_protocol)
     : loop(loop), 
       socket(move(socket)),
-      channel("server",this->socket.fd(), this, loop->selector.get(), channel_protocol) {
-    socket.setsockopt(SOL_SOCKET, SO_KEEPALIVE, 1);
-    cout << "opened " << ++opened_sockets << " number of sockets" << endl;
+      channel(this->socket.fd(), this, loop->selector.get(), channel_protocol) {
+    socket.setsockopt(SOL_SOCKET, SO_KEEPALIVE, true);
+    socket.setsockopt(IPPROTO_TCP, TCP_NODELAY, true);
+
 }
 
 Transport::~Transport() {
-    cout << "closed " << ++closed_sockets  << " scokets " << endl;
 }
 
 bool Transport::operator()() {
@@ -113,27 +109,6 @@ void TcpTransport::reset_timeout() {
     }
 }
 
-void TcpTransport::send_in_loop(const void* data, size_t len) {
-    if (state() != ACTIVATED) {
-
-    }
-    reset_timeout();
-    int lensent = 0;
-    if (is_writing() && wbuffer.empty()) {
-        lensent = socket.send(data, len);
-        if (lensent < 0) {
-            handle_onclose();
-            return;
-        }
-    }
-    if (lensent < len) {
-        size_t bytes_write = wbuffer.feed_wbuffer(data, len);
-        if (!is_writing())
-            resume_writing();
-        if (wbuffer.size() > write_highlevel && protocol->pause_writing_cb)
-            protocol->pause_writing_cb(shared_from_this());
-    }
-}
 
 
 void TcpTransport::handle_onread() {
@@ -154,12 +129,12 @@ void TcpTransport::handle_onread() {
             protocol->data_received_cb(shared_from_this());
     }
 }
+
 void TcpTransport::handle_onwrite() {
     loop->assert_within_self_thread();
     if (!is_writing()) {
 
     }
-    reset_timeout();
     int res = wbuffer.drain_wbuffer(socket.fd());
     if (res == 0) {
         pause_writing();
@@ -217,28 +192,24 @@ void TcpTransport::force_close() {
     }
 }
 
-
-
 // user interface
 TcpTransport::TcpTransport(
     EventLoop* loop, 
     Socket && socket, 
-    chrono::seconds timeout = chrono::seconds{0},
+    chrono::seconds timeout = 5s,
     Protocol* protocol = &default_protocol, 
     Channel::Protocol* channel_protocol = &default_channel_protocol)
     : timeout(timeout), 
       Transport(loop, move(socket), channel_protocol),
       protocol(protocol) {
-
 }
 
 TcpTransport::~TcpTransport() {
-
+    force_close();
 }
 
 bool TcpTransport::activate() {
     loop->call_soon([=]() {
-        socket.setsockopt(SOL_SOCKET, SO_KEEPALIVE, true);
         if (protocol->connection_made_cb)
             protocol->connection_made_cb(shared_from_this());
         resume_reading();
@@ -259,11 +230,16 @@ void* TcpTransport::get_transport_protocol() const {
 void TcpTransport::send(const void* data, size_t len) {
     // need mutex? or some times(when there are no send_in_loop in queue) can just call send_in_loop?
     if (len) {
-        if (!is_writing()) {
-            resume_writing();
-        }
         loop->call_soon([=](){
-            send_in_loop(data, len);
+            if (state() != ACTIVATED) {
+
+            }
+            reset_timeout();
+            size_t bytes_write = wbuffer.feed_wbuffer(data, len);
+            if (!is_writing())
+                resume_writing();
+            if (wbuffer.size() > write_highlevel && protocol->pause_writing_cb)
+                protocol->pause_writing_cb(shared_from_this());
         });
     }
 }

@@ -36,14 +36,12 @@ private:
     int _events = 0, _prev_events = 0;
 
     Protocol* protocol;
-    string name;
 public:
     using CallBack = Protocol::CallBack;
 
-
-    Channel(string name, int fd, void * controller, Selector* selector, 
+    Channel(int fd, void * controller, Selector* selector, 
             Protocol* protocol = &default_protocol)
-        : name(name), _fd(fd), controller(controller), selector(selector), 
+        : _fd(fd), controller(controller), selector(selector), 
           protocol(protocol) {}
 
     ~Channel() {
@@ -67,11 +65,9 @@ public:
     }
     void enable_all() {
         enable(READ | WRITE);
-        notify();
     }
     void disable_all() {
         disable(READ | WRITE);
-        notify();
     }
     void update_events(int evs) {
         if (_events != evs) {
@@ -99,7 +95,7 @@ public:
         }
         else {
             assert(_state == States::ADDED);
-            if (*(this)) {
+            if (*this) {
                 selector->modify(_fd, _events, this);
             }
             else {

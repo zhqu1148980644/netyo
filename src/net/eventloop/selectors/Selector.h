@@ -15,7 +15,8 @@ public:
 protected:
     EventHandler handler;
 public:
-    const static int EPOLL_WAIT_TIMEOUT = 10000;
+    static int EPOLL_WAIT_TIMEOUT;
+    static int EVENTS_LIST_SIZE;
     Selector(EventHandler && handler);
     virtual ~Selector() = default;
     virtual void add(int fd, int events, void* pdata) = 0;
