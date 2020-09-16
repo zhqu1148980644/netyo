@@ -62,6 +62,8 @@ public:
             {},
             [this](auto pconn) {
                 int sockfd = 0;
+                // loop if used for handling EPOLLLET mode
+                // TODO(zhongquan789@gmail.com) Move TimingWheel to each worker
                 do {
                     auto socket = pconn->get_socket().accept();
                     sockfd = socket.fd();
@@ -82,6 +84,7 @@ public:
         if (!client_protocol->reset_timeout_cb) {
             client_protocol->reset_timeout_cb = 
                 [this](auto pconn, const auto & timeout) {
+                // must call call_sonn, otherwise it's not synchronized.
                 server_loop->call_soon([=]() {
                     if (!connections.count(pconn)) {
                         // error
