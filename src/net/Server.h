@@ -82,22 +82,24 @@ public:
         if (!client_protocol->reset_timeout_cb) {
             client_protocol->reset_timeout_cb = 
                 [this](auto pconn, const auto & timeout) {
-                if (!connections.count(pconn)) {
-                    // error
-                }
-                else {
-                    if (connections[pconn].expired()) {
-                        auto entry = make_shared<TimeOutEntry>(pconn);
-                        connections[pconn] = entry;
-                        timing_wheel.insert(timeout.count(), entry);
+                server_loop->call_soon([=]() {
+                    if (!connections.count(pconn)) {
+                        // error
                     }
                     else {
-                        timing_wheel.insert(
-                            timeout.count(), 
-                            connections[pconn].lock()
-                        );
+                        if (connections[pconn].expired()) {
+                            auto entry = make_shared<TimeOutEntry>(pconn);
+                            connections[pconn] = entry;
+                            timing_wheel.insert(timeout.count(), entry);
+                        }
+                        else {
+                            timing_wheel.insert(
+                                timeout.count(), 
+                                connections[pconn].lock()
+                            );
+                        }
                     }
-                }
+                });
             };
         }
         

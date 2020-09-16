@@ -121,7 +121,6 @@ void TcpTransport::handle_onread() {
     else if (nbytes == 0) {
         if (protocol->eof_received_cb)
             protocol->eof_received_cb(shared_from_this());
-        handle_onclose();
     }
     else {
         reset_timeout();
