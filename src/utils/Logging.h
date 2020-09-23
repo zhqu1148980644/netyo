@@ -1,10 +1,9 @@
 #pragma once
-
+#include <string.h>
 #include <type_traits>
 #include <string_view>
 #include <string>
 #include <algorithm>
-#include <string.h>
 
 using namespace std;
 

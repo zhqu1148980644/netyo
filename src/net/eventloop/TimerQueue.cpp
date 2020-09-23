@@ -57,6 +57,9 @@ void TimerQueue::handle_exprired() {
             if (ptimer->is_repeat()) {
                 insert(ptimer);
             }
+            else {
+                valid_timers.erase(ptimer->id());
+            }
         }
     }
     if (timers.size()) {
