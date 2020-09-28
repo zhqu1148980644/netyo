@@ -83,10 +83,10 @@ protected:
     void reset_timeout();
     void done_writing();
 
-    virtual void handle_onread() override;
-    virtual void handle_onwrite() override;
-    virtual void handle_onclose() override;
-    virtual void handle_onerror() override;
+    void handle_onread() override;
+    void handle_onwrite() override;
+    void handle_onclose() override;
+    void handle_onerror() override;
 public:
     static Protocol default_protocol;
     size_t write_highlevel = 4000, read_lowlevel = 500;
@@ -95,23 +95,23 @@ public:
                  Protocol* protocol, 
                  Channel::Protocol* channel_protocol);
 
-    virtual ~TcpTransport() override;
-    virtual bool activate() override;
-    virtual void* set_transport_protocol(void * protocol) override;
-    virtual void* get_transport_protocol() const override;
-    virtual void send(const void* data, size_t len) override;
-    virtual void send_file() override;
-    virtual void close() override;
-    virtual void force_close() override;
+    ~TcpTransport() override;
+    bool activate() override;
+    void* set_transport_protocol(void * protocol) override;
+    void* get_transport_protocol() const override;
+    void send(const void* data, size_t len) override;
+    void send_file() override;
+    void close() override;
+    void force_close() override;
 };
 
 
 class TcpServerAcceptor : public TcpTransport {
 private:
     // maybe more control  
-    virtual void handle_onread() override;
+    void handle_onread() override;
 public:
-    virtual bool activate() override;
+    bool activate() override;
     using TcpTransport::TcpTransport;
-    virtual ~TcpServerAcceptor() override;
+    ~TcpServerAcceptor() override;
 };

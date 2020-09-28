@@ -6,15 +6,19 @@
 - [ ] http parser and http connection
 
 
-##### Test
+#### Test
 
 - os: linux
-- compiler: need c++17 support
+- compiler: c++17 support
 
 ```bash
 cmake ./ && make
 ./netyo
 ```
 
-##### reference:
+#### schema
+
+![schema](doc/assets/netyo-Netyo.jpg)
+
+#### reference:
 - https://github.com/an-tao/trantor
